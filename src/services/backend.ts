@@ -2,7 +2,7 @@ import {randomId} from './id';
 import {createClient} from '@supabase/supabase-js';
 import type {State,Role,Document} from '../types';
 import {seed} from './seed';
-export const demo=import.meta.env.VITE_DEMO_MODE!=='false';
+export const demo=import.meta.env.VITE_DEMO_MODE==='true';
 export const supabase=import.meta.env.VITE_SUPABASE_URL&&import.meta.env.VITE_SUPABASE_ANON_KEY?createClient(import.meta.env.VITE_SUPABASE_URL,import.meta.env.VITE_SUPABASE_ANON_KEY):null;
 export const bindings={shipments:'shipments',products:'products',documents:'saved_documents',compilations:'shipment_compilations',packs:'rule_packs',sources:'rule_sources',audit:'audit_logs',notifications:'notifications',reviews:'consultant_reviews',invitations:'invitations'} as const;
 export async function loadWorkspace(orgId:string):Promise<State>{
@@ -17,5 +17,5 @@ export async function memberships(){if(!supabase)return [];const{data:{user}}=aw
 export function validateFile(file:File){if(!['application/pdf','image/png','image/jpeg','text/plain'].includes(file.type))throw Error('Choose a PDF, PNG, JPG, or plain-text file.');if(file.size>10*1024*1024)throw Error('Files must be smaller than 10 MB.');if(!file.size)throw Error('The file is empty.');}
 export async function uploadFile(file:File,org:string,type:string,country?:string):Promise<Document>{validateFile(file);const id=randomId();let path:string|undefined;
  if(!demo){if(!supabase)throw Error('Storage unavailable.');path=`${org}/${id}/${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;const{error}=await supabase.storage.from('documents').upload(path,file,{contentType:file.type,upsert:false});if(error)throw error;}
- return{id,name:file.name,type,country,demo,status:'review',path,size:file.size};}
+ return{id,name:file.name,type,country,demo:false,status:'review',path,size:file.size};}
 export async function documentUrl(doc:Document){if(!supabase||!doc.path)throw Error('This demonstration document has no original uploaded file.');const{data,error}=await supabase.storage.from('documents').createSignedUrl(doc.path,60);if(error)throw error;return data.signedUrl;}
