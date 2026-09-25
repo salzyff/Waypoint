@@ -18,7 +18,7 @@ export function evaluate(condition:Condition,data:Record<string,unknown>):boolea
 }
 export function selectPacks(packs:RulePack[],s:Shipment):RulePack[]{
  const latest=new Map<string,RulePack>();
- packs.filter(p=>p.status==='published'&&(p.country==='ALL'||p.country===s.origin||p.country===s.destination)).forEach(p=>{const old=latest.get(p.id);if(!old||p.version.localeCompare(old.version,undefined,{numeric:true})>0)latest.set(p.id,p)});return [...latest.values()];
+ packs.filter(p=>p.status==='published'&&!p.id.endsWith('-DEMO')&&p.id.includes('OFFICIAL')&&(p.country==='ALL'||p.country===s.origin||p.country===s.destination)).forEach(p=>{const old=latest.get(p.id);if(!old||p.version.localeCompare(old.version,undefined,{numeric:true})>0)latest.set(p.id,p)});return [...latest.values()];
 }
 export function compile(s:Shipment,packs:RulePack[],sequence=1,at=new Date().toISOString()):Compilation {
  const selected=selectPacks(packs,s);const docs:Record<string,boolean>={};
@@ -26,7 +26,7 @@ export function compile(s:Shipment,packs:RulePack[],sequence=1,at=new Date().toI
  const data={...s,docs,expired:s.documents.some(d=>d.expires&&d.expires<s.shippingDate),originSimple:s.manufactured===s.origin&&s.localPercent>=60,valid:!!s.name&&!!s.description&&s.quantity>0&&s.weight>0&&s.value>0&&s.origin!==s.destination};
  const results:Result[]=selected.flatMap(p=>p.rules).filter(r=>(r.country==='ALL'||(r.direction==='origin'?s.origin:s.destination)===r.country)&&(r.category==='all'||r.category===s.category)&&r.effectiveFrom<=at.slice(0,10)&&(!r.effectiveUntil||r.effectiveUntil>=at.slice(0,10))&&evaluate(r.when,data)).map(rule=>({rule:structuredClone(rule),passed:evaluate(rule.check,data)}));
  const supported=results.some(r=>r.rule.direction==='destination');
- if(!supported)results.push({passed:false,rule:{id:'coverage',version:'1.0',country:'ALL',direction:'all',category:'all',stage:'Destination requirements',when:{all:[]},check:{all:[]},severity:'review',title:'No applicable destination rule pack',message:'The configured rule set does not cover this destination and product.',resolution:'Obtain professional review and publish a suitable rule pack.',sourceId:'demo',effectiveFrom:'2026-01-01',verifiedAt:'2026-09-12'}});
+ if(!supported)results.push({passed:false,rule:{id:'coverage',version:'1.0',country:'ALL',direction:'all',category:'all',stage:'Destination requirements',when:{all:[]},check:{all:[]},severity:'review',title:'No applicable destination rule pack',message:'The official source-backed rule set does not cover this destination and product combination yet.',resolution:'Obtain professional review before shipping and ask a platform administrator to publish a verified rule pack.',sourceId:'coverage',effectiveFrom:'2026-01-01',verifiedAt:at.slice(0,10)}});
  const failed=results.filter(r=>!r.passed);const blockers=failed.filter(r=>r.rule.severity==='blocker').length;const warnings=failed.filter(r=>r.rule.severity==='warning').length;const reviews=failed.filter(r=>r.rule.severity==='review').length;
  const mandatory=results.filter(r=>r.rule.severity!=='warning');
  return {id:randomId(),shipmentId:s.id,sequence,at,status:blockers?'blocked':reviews?'review':warnings?'warning':'ready',results,mandatory:mandatory.length,completed:mandatory.filter(r=>r.passed).length,blockers,warnings,reviews,packs:selected.map(p=>({id:p.id,version:p.version})),shipment:structuredClone(s)};
