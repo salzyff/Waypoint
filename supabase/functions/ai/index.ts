@@ -6,7 +6,7 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const MODEL = 'gpt-5.6-luna';
+const MODEL = 'gpt-5.4-mini';
 
 type ProductCandidate = {
   name?: string;
