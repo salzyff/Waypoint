@@ -21,26 +21,24 @@ type ProductCandidate = {
 
 const extractionSchema = {
   type: 'object',
-  additionalProperties: false,
   properties: {
     candidate: {
       type: 'object',
-      additionalProperties: false,
       properties: {
-        name: { type: ['string', 'null'] },
-        sku: { type: ['string', 'null'] },
-        description: { type: ['string', 'null'] },
-        category: { type: ['string', 'null'], enum: ['cosmetics', 'food', 'textiles', 'agriculture', 'electronics'] },
-        ingredients: { type: ['string', 'null'] },
-        brand: { type: ['string', 'null'] },
-        classification: { type: ['string', 'null'] },
-        manufactured: { type: ['string', 'null'], enum: ['NG', 'GH', 'KE'] },
+        name: { type: 'string', nullable: true },
+        sku: { type: 'string', nullable: true },
+        description: { type: 'string', nullable: true },
+        category: { type: 'string', nullable: true, enum: ['cosmetics', 'food', 'textiles', 'agriculture', 'electronics'] },
+        ingredients: { type: 'string', nullable: true },
+        brand: { type: 'string', nullable: true },
+        classification: { type: 'string', nullable: true },
+        manufactured: { type: 'string', nullable: true, enum: ['NG', 'GH', 'KE'] },
       },
       required: ['name', 'sku', 'description', 'category', 'ingredients', 'brand', 'classification', 'manufactured'],
     },
     confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
     reason: { type: 'string' },
-    requiresConfirmation: { type: 'boolean', enum: [true] },
+    requiresConfirmation: { type: 'boolean' },
   },
   required: ['candidate', 'confidence', 'reason', 'requiresConfirmation'],
 };
