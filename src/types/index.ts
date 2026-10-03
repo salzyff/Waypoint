@@ -3,7 +3,7 @@ export type Category='cosmetics'|'food'|'textiles'|'agriculture'|'electronics';
 export type Role='exporter'|'consultant'|'org_admin'|'platform_admin';
 export type Stage='Product'|'Classification'|'Export requirements'|'Rules of origin'|'Transport'|'Destination requirements'|'Customs preparation'|'Ready';
 export type Status='ready'|'warning'|'blocked'|'review'|'draft';
-export interface Document {id:string;name:string;type:string;country?:string;category?:string;issued?:string;expires?:string;status:'available'|'review';demo:boolean;path?:string;size?:number;}
+export interface Document {id:string;name:string;type:string;country?:string;category?:string;issued?:string;expires?:string;status:'available'|'review';demo:boolean;path?:string;size?:number;mimeType?:string;}
 export interface Product {id:string;name:string;sku:string;description:string;category:Category;ingredients:string;brand:string;classification:string;manufactured:Country;}
 export interface Shipment {id:string;name:string;description:string;category:Category;ingredients:string;packaging:string;brand:string;classification:string;confirmed:boolean;manufactured:Country;origin:Country;destination:Country;manufacturer:string;localPercent:number;importer:string;purpose:string;quantity:number;unit:string;weight:number;value:number;currency:string;transport:string;shippingDate:string;documents:Document[];created:string;draft:boolean;}
 export type Condition={all:Condition[]}|{any:Condition[]}|{field:string;op:'equals'|'not_equals'|'in'|'gt'|'lt'|'exists'|'missing'|'date_before'|'date_after';value?:unknown};
