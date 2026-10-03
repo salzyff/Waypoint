@@ -129,13 +129,15 @@ Classification should contain a classification/code only when the document expli
 A suggestion is never authoritative and MUST require human confirmation.
 ${description ? `Additional user description: ${description}` : ''}`;
 
-      const content: any[] = [
-        { type: 'input_text', text: prompt },
-        { type: 'input_file', file_url: signed.signedUrl, filename: documentName },
-      ];
-
       if (!documentType.startsWith('image/') && documentType !== 'application/pdf' && documentType !== 'text/plain') {
         return json({ error: 'Unsupported AI document type' }, 400);
+      }
+
+      const content: any[] = [{ type: 'input_text', text: prompt }];
+      if (documentType.startsWith('image/')) {
+        content.push({ type: 'input_image', image_url: signed.signedUrl, detail: 'low' });
+      } else {
+        content.push({ type: 'input_file', file_url: signed.signedUrl, filename: documentName, detail: 'low' });
       }
 
       const response = await openai({
