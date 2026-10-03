@@ -142,9 +142,24 @@ Deno.serve(async (req: Request) => {
 
       const documentName = document.data.name || 'shipment-document';
       const documentType = document.data.type || '';
+      const storedMimeType = document.data.mimeType || '';
+      const extensionMimeType: Record<string, string> = {
+        pdf: 'application/pdf',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        txt: 'text/plain',
+      };
+      const extension = documentName.toLowerCase().split('.').pop() || '';
+      const supportedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'text/plain'];
+      const mimeType = supportedMimeTypes.includes(storedMimeType)
+        ? storedMimeType
+        : supportedMimeTypes.includes(documentType)
+          ? documentType
+          : extensionMimeType[extension];
 
-      if (!documentType.startsWith('image/') && documentType !== 'application/pdf' && documentType !== 'text/plain') {
-        return json({ error: 'Unsupported AI document type' }, 400);
+      if (!mimeType) {
+        return json({ error: 'Unsupported AI document type. Use a PDF, PNG, JPG, or plain-text file.' }, 400);
       }
 
       const fileResponse = await fetch(signed.signedUrl);
@@ -165,7 +180,7 @@ ${description ? `Additional user description: ${description}` : ''}`;
 
       const text = await gemini([
         { text: prompt },
-        { inlineData: { mimeType: documentType, data: base64(bytes) } },
+        { inlineData: { mimeType, data: base64(bytes) } },
       ], extractionSchema);
 
       const parsed = JSON.parse(text);
