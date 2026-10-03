@@ -6,7 +6,7 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const MODEL = 'gpt-5.4-mini';
+const MODEL = 'gemini-3.1-flash-lite';
 
 type ProductCandidate = {
   name?: string;
@@ -27,20 +27,20 @@ const extractionSchema = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        name: { type: ['string', 'null'] },
-        sku: { type: ['string', 'null'] },
-        description: { type: ['string', 'null'] },
-        category: { type: ['string', 'null'], enum: ['cosmetics', 'food', 'textiles', 'agriculture', 'electronics', null] },
-        ingredients: { type: ['string', 'null'] },
-        brand: { type: ['string', 'null'] },
-        classification: { type: ['string', 'null'] },
-        manufactured: { type: ['string', 'null'], enum: ['NG', 'GH', 'KE', null] },
+        name: { type: 'string', nullable: true },
+        sku: { type: 'string', nullable: true },
+        description: { type: 'string', nullable: true },
+        category: { type: 'string', nullable: true, enum: ['cosmetics', 'food', 'textiles', 'agriculture', 'electronics'] },
+        ingredients: { type: 'string', nullable: true },
+        brand: { type: 'string', nullable: true },
+        classification: { type: 'string', nullable: true },
+        manufactured: { type: 'string', nullable: true, enum: ['NG', 'GH', 'KE'] },
       },
       required: ['name', 'sku', 'description', 'category', 'ingredients', 'brand', 'classification', 'manufactured'],
     },
     confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
     reason: { type: 'string' },
-    requiresConfirmation: { type: 'boolean', const: true },
+    requiresConfirmation: { type: 'boolean', enum: [true] },
   },
   required: ['candidate', 'confidence', 'reason', 'requiresConfirmation'],
 };
@@ -62,29 +62,47 @@ async function requireUser(req: Request) {
   );
   const { data: { user }, error } = await client.auth.getUser();
   if (error || !user) throw new Error('Session expired');
-  return { client, user };
+  return client;
 }
 
-async function openai(body: unknown) {
-  const key = Deno.env.get('OPENAI_API_KEY');
-  if (!key) throw new Error('OpenAI is not configured. Add OPENAI_API_KEY to Supabase Edge Function secrets.');
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+async function gemini(parts: unknown[], responseSchema?: unknown) {
+  const key = Deno.env.get('GEMINI_API_KEY');
+  if (!key) throw new Error('Gemini is not configured. Add GEMINI_API_KEY to Supabase Edge Function secrets.');
+
+  const generationConfig: Record<string, unknown> = {
+    responseMimeType: 'application/json',
+  };
+  if (responseSchema) generationConfig.responseSchema = responseSchema;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig,
+      }),
+    },
+  );
+
   const data = await response.json();
   if (!response.ok) {
-    const message = data?.error?.message || 'OpenAI request failed';
-    throw new Error(message);
+    throw new Error(data?.error?.message || 'Gemini request failed');
   }
-  return data;
+
+  const text = data?.candidates?.[0]?.content?.parts?.find((part: any) => typeof part.text === 'string')?.text;
+  if (!text) throw new Error('Gemini returned no text.');
+  return text;
 }
 
-function outputText(response: any) {
-  if (typeof response?.output_text === 'string') return response.output_text;
-  const message = response?.output?.find((item: any) => item.type === 'message');
-  return message?.content?.find((part: any) => part.type === 'output_text')?.text || '';
+function base64(bytes: Uint8Array) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+  }
+  return btoa(binary);
 }
 
 Deno.serve(async (req: Request) => {
@@ -92,7 +110,7 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
-    const { client } = await requireUser(req);
+    const client = await requireUser(req);
     const body = await req.json();
 
     if (body.action === 'extract') {
@@ -120,6 +138,14 @@ Deno.serve(async (req: Request) => {
       const documentName = document.data.name || 'shipment-document';
       const documentType = document.data.type || '';
 
+      if (!documentType.startsWith('image/') && documentType !== 'application/pdf' && documentType !== 'text/plain') {
+        return json({ error: 'Unsupported AI document type' }, 400);
+      }
+
+      const fileResponse = await fetch(signed.signedUrl);
+      if (!fileResponse.ok) return json({ error: 'Unable to read document' }, 400);
+
+      const bytes = new Uint8Array(await fileResponse.arrayBuffer());
       const prompt = `You are Waypoint's document extraction assistant.
 Extract only factual product/shipment information explicitly present in the supplied document.
 Do not invent missing values. Use null for missing fields.
@@ -129,33 +155,11 @@ Classification should contain a classification/code only when the document expli
 A suggestion is never authoritative and MUST require human confirmation.
 ${description ? `Additional user description: ${description}` : ''}`;
 
-      if (!documentType.startsWith('image/') && documentType !== 'application/pdf' && documentType !== 'text/plain') {
-        return json({ error: 'Unsupported AI document type' }, 400);
-      }
+      const text = await gemini([
+        { text: prompt },
+        { inlineData: { mimeType: documentType, data: base64(bytes) } },
+      ], extractionSchema);
 
-      const content: any[] = [{ type: 'input_text', text: prompt }];
-      if (documentType.startsWith('image/')) {
-        content.push({ type: 'input_image', image_url: signed.signedUrl, detail: 'low' });
-      } else {
-        content.push({ type: 'input_file', file_url: signed.signedUrl, filename: documentName, detail: 'low' });
-      }
-
-      const response = await openai({
-        model: MODEL,
-        reasoning: { effort: 'low' },
-        input: [{ role: 'user', content }],
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'waypoint_product_extraction',
-            strict: true,
-            schema: extractionSchema,
-          },
-        },
-        max_output_tokens: 500,
-      });
-
-      const text = outputText(response);
       const parsed = JSON.parse(text);
       const candidate: ProductCandidate = {};
       for (const [key, value] of Object.entries(parsed.candidate ?? {})) {
@@ -174,17 +178,14 @@ ${description ? `Additional user description: ${description}` : ''}`;
       const rule = body.rule;
       if (!rule || typeof rule !== 'object') return json({ error: 'rule is required' }, 400);
 
-      const response = await openai({
-        model: MODEL,
-        reasoning: { effort: 'low' },
-        input: `Explain this Waypoint rule in plain English. Do not change, reinterpret, or override the rule. Mention that official requirements and professional review remain authoritative.
+      const text = await gemini([{
+        text: `Explain this Waypoint rule in plain English. Do not change, reinterpret, or override the rule. Do not add requirements that are absent from it. Mention that official requirements and professional review remain authoritative.
 
 Rule:
 ${JSON.stringify(rule)}`,
-        max_output_tokens: 220,
-      });
+      }]);
 
-      return json({ explanation: outputText(response) });
+      return json({ explanation: text });
     }
 
     return json({ error: 'Unknown AI action' }, 400);
