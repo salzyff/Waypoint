@@ -27,14 +27,14 @@ const extractionSchema = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        name: { type: 'string', nullable: true },
-        sku: { type: 'string', nullable: true },
-        description: { type: 'string', nullable: true },
-        category: { type: 'string', nullable: true, enum: ['cosmetics', 'food', 'textiles', 'agriculture', 'electronics'] },
-        ingredients: { type: 'string', nullable: true },
-        brand: { type: 'string', nullable: true },
-        classification: { type: 'string', nullable: true },
-        manufactured: { type: 'string', nullable: true, enum: ['NG', 'GH', 'KE'] },
+        name: { type: ['string', 'null'] },
+        sku: { type: ['string', 'null'] },
+        description: { type: ['string', 'null'] },
+        category: { type: ['string', 'null'], enum: ['cosmetics', 'food', 'textiles', 'agriculture', 'electronics'] },
+        ingredients: { type: ['string', 'null'] },
+        brand: { type: ['string', 'null'] },
+        classification: { type: ['string', 'null'] },
+        manufactured: { type: ['string', 'null'], enum: ['NG', 'GH', 'KE'] },
       },
       required: ['name', 'sku', 'description', 'category', 'ingredients', 'brand', 'classification', 'manufactured'],
     },
@@ -75,10 +75,10 @@ async function gemini(parts: unknown[], responseSchema?: unknown) {
   if (responseSchema) generationConfig.responseSchema = responseSchema;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
         generationConfig,
@@ -91,8 +91,13 @@ async function gemini(parts: unknown[], responseSchema?: unknown) {
     throw new Error(data?.error?.message || 'Gemini request failed');
   }
 
-  const text = data?.candidates?.[0]?.content?.parts?.find((part: any) => typeof part.text === 'string')?.text;
-  if (!text) throw new Error('Gemini returned no text.');
+  const candidate = data?.candidates?.[0];
+  const text = candidate?.content?.parts?.find((part: any) => typeof part.text === 'string')?.text;
+  if (!text) {
+    const reason = candidate?.finishReason || data?.promptFeedback?.blockReason;
+    const ratings = candidate?.safetyRatings?.filter((r: any) => r?.blocked || r?.probability === 'HIGH').map((r: any) => r.category).join(', ');
+    throw new Error(reason ? `Gemini did not return an answer (reason: ${reason}${ratings ? `; safety: ${ratings}` : ''}).` : 'Gemini returned no text.');
+  }
   return text;
 }
 
@@ -146,6 +151,9 @@ Deno.serve(async (req: Request) => {
       if (!fileResponse.ok) return json({ error: 'Unable to read document' }, 400);
 
       const bytes = new Uint8Array(await fileResponse.arrayBuffer());
+      if (bytes.byteLength > 50 * 1024 * 1024) {
+        return json({ error: 'Document is larger than Gemini\'s 50 MB inline document limit. Use manual entry or a smaller document.' }, 400);
+      }
       const prompt = `You are Waypoint's document extraction assistant.
 Extract only factual product/shipment information explicitly present in the supplied document.
 Do not invent missing values. Use null for missing fields.
